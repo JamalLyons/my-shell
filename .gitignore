@@ -1,8 +1,3 @@
-# Fish shell specific
-fish_variables
-fish_history
-fish_plugins
-
 # OS specific
 .DS_Store
 .DS_Store?
@@ -22,4 +17,3 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
-

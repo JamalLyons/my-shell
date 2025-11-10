@@ -92,7 +92,7 @@ if [ -f "$FISH_CONFIG_DIR/config.fish" ]; then
     cp "$FISH_CONFIG_DIR/config.fish" "$FISH_CONFIG_DIR/config.fish.backup.$(date +%Y%m%d_%H%M%S)"
 fi
 
-# Create the config.fish file
+# Create the config.fish file (functions are in separate files)
 cat > "$FISH_CONFIG_DIR/config.fish" << 'FISHCONFIG'
 # ============================================================================
 # Fish Shell Configuration for macOS
@@ -122,12 +122,8 @@ if test -d ~/.nvm
     set -gx nvm_data ~/.nvm
 end
 
-# Set default Node version to load automatically on startup
-# This will use the default alias (which points to stable)
-# You can change this to a specific version like "v25.1.0" if preferred
-if not set -q nvm_default_version
-    set -Ux nvm_default_version default
-end
+# Note: Node.js v25.1.0 auto-install is handled in conf.d/nvm-auto-setup.fish
+# This ensures it runs after nvm.fish is fully loaded
 
 # Set default editor (prefer Cursor, then zed, then vim)
 if type -q cursor
@@ -223,15 +219,59 @@ abbr -a -- gd git diff
 abbr -a -- gl git log --oneline --graph --decorate --all
 
 # ----------------------------------------------------------------------------
-# Custom Functions
+# Custom Functions (loaded from functions/ directory)
 # ----------------------------------------------------------------------------
 
+# All custom functions are defined in separate files in ~/.config/fish/functions/
+# This keeps the config clean and makes functions easier to manage
+
+# ----------------------------------------------------------------------------
+# Interactive Session Setup
+# ----------------------------------------------------------------------------
+
+if status is-interactive
+    # Welcome message (only show once per session)
+    if not set -q FISH_WELCOME_SHOWN
+        set -gx FISH_WELCOME_SHOWN 1
+        # Uncomment the line below if you want a welcome message
+        # echo "🐟 Fish shell ready! Type 'helpme' for custom commands."
+    end
+end
+FISHCONFIG
+
+success "Fish configuration created"
+
+# Create all custom functions
+info "Creating custom functions..."
+
+# Reload function
+cat > "$FISH_CONFIG_DIR/functions/reload.fish" << 'FUNC'
+# Reload fish configuration
+function reload
+    source ~/.config/fish/config.fish
+    echo "Fish configuration reloaded!"
+end
+FUNC
+
+# Editfish function
+cat > "$FISH_CONFIG_DIR/functions/editfish.fish" << 'FUNC'
+# Edit fish configuration
+function editfish
+    $EDITOR ~/.config/fish/config.fish
+end
+FUNC
+
+# mkcd function
+cat > "$FISH_CONFIG_DIR/functions/mkcd.fish" << 'FUNC'
 # Create directory and cd into it
 function mkcd
     mkdir -p $argv[1]
     cd $argv[1]
 end
+FUNC
 
+# extract function
+cat > "$FISH_CONFIG_DIR/functions/extract.fish" << 'FUNC'
 # Extract various archive formats
 function extract
     if test -z $argv[1]
@@ -269,27 +309,42 @@ function extract
             return 1
     end
 end
+FUNC
 
+# ff function
+cat > "$FISH_CONFIG_DIR/functions/ff.fish" << 'FUNC'
 # Find files by name
 function ff
     find . -name "*$argv[1]*" -type f
 end
+FUNC
 
+# fd function
+cat > "$FISH_CONFIG_DIR/functions/fd.fish" << 'FUNC'
 # Find directories by name
 function fd
     find . -name "*$argv[1]*" -type d
 end
+FUNC
 
+# grep function
+cat > "$FISH_CONFIG_DIR/functions/grep.fish" << 'FUNC'
 # Quick search in files
 function grep
     command grep --color=auto $argv
 end
+FUNC
 
+# duh function
+cat > "$FISH_CONFIG_DIR/functions/duh.fish" << 'FUNC'
 # Show disk usage of current directory
 function duh
     du -h -d 1 | sort -hr
 end
+FUNC
 
+# serve function
+cat > "$FISH_CONFIG_DIR/functions/serve.fish" << 'FUNC'
 # Quick server (Python)
 function serve
     if test -n "$argv[1]"
@@ -306,7 +361,10 @@ function serve
         return 1
     end
 end
+FUNC
 
+# note function
+cat > "$FISH_CONFIG_DIR/functions/note.fish" << 'FUNC'
 # Quick note taking
 function note
     set note_file ~/.notes
@@ -321,7 +379,63 @@ function note
         end
     end
 end
+FUNC
 
+# git-cred-clear function
+cat > "$FISH_CONFIG_DIR/functions/git-cred-clear.fish" << 'FUNC'
+# Git credential management helpers
+function git-cred-clear
+    # Clear GitHub credentials from keychain
+    security delete-internet-password -s github.com 2>/dev/null
+    echo "GitHub credentials cleared from keychain"
+end
+FUNC
+
+# git-cred-update function
+cat > "$FISH_CONFIG_DIR/functions/git-cred-update.fish" << 'FUNC'
+# Update GitHub credentials
+function git-cred-update
+    # Usage: git-cred-update <username> <personal-access-token>
+    if test (count $argv) -lt 2
+        echo "Usage: git-cred-update <username> <personal-access-token>"
+        echo ""
+        echo "To create a Personal Access Token:"
+        echo "  1. Go to: https://github.com/settings/tokens"
+        echo "  2. Generate new token (classic)"
+        echo "  3. Select scopes: repo, workflow, write:packages, delete:packages"
+        return 1
+    end
+    
+    set username $argv[1]
+    set token $argv[2]
+    
+    # Clear old credentials
+    git-cred-clear
+    
+    # Set up credential helper
+    git config --global credential.helper osxkeychain
+    
+    # Store new credentials via git credential helper
+    echo "protocol=https
+host=github.com
+username=$username
+password=$token" | git credential approve
+    
+    echo "GitHub credentials updated!"
+    echo "Username: $username"
+end
+FUNC
+
+# git-cred-view function
+cat > "$FISH_CONFIG_DIR/functions/git-cred-view.fish" << 'FUNC'
+# View current GitHub credentials (username only, password hidden)
+function git-cred-view
+    security find-internet-password -s github.com 2>/dev/null | grep "acct" | string replace -r '.*"acct"<blob>="([^"]+)".*' '$1'
+end
+FUNC
+
+# helpme function
+cat > "$FISH_CONFIG_DIR/functions/helpme.fish" << 'FUNC'
 # Show help for custom commands
 function helpme
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -349,6 +463,11 @@ function helpme
     echo "    note [text]    - Add/view notes"
     echo "    cleanup        - Remove .DS_Store files"
     echo ""
+    echo "  Git Credentials:"
+    echo "    git-cred-clear           - Clear GitHub credentials from keychain"
+    echo "    git-cred-update <user> <token> - Update GitHub credentials"
+    echo "    git-cred-view            - View current GitHub username"
+    echo ""
     echo "  Git Abbreviations (type and press space to expand):"
     echo "    gst            - git status"
     echo "    gco            - git checkout"
@@ -359,40 +478,43 @@ function helpme
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 end
+FUNC
 
-# ----------------------------------------------------------------------------
-# Interactive Session Setup
-# ----------------------------------------------------------------------------
+# Create nvm-auto-setup.fish
+cat > "$FISH_CONFIG_DIR/conf.d/nvm-auto-setup.fish" << 'FUNC'
+# Auto-install and use Node.js v25.1.0
+# This runs after nvm.fish is loaded
 
-if status is-interactive
-    # Welcome message (only show once per session)
-    if not set -q FISH_WELCOME_SHOWN
-        set -gx FISH_WELCOME_SHOWN 1
-        # Uncomment the line below if you want a welcome message
-        # echo "🐟 Fish shell ready! Type 'helpme' for custom commands."
+function _setup_node_v25_1_0 --on-event fish_prompt
+    # Only run once per session
+    if set -q _node_v25_setup_done
+        return
+    end
+    
+    # Wait for nvm.fish to be fully loaded
+    if functions -q nvm
+        # Check if v25.1.0 is installed
+        if not test -d $nvm_data/v25.1.0
+            echo "Installing Node.js v25.1.0..."
+            nvm install v25.1.0 --silent
+        end
+        
+        # Use v25.1.0 if not already active
+        if not set -q nvm_current_version
+            nvm use v25.1.0 --silent
+        end
+        
+        # Set as default for future sessions
+        if not set -q nvm_default_version
+            set -Ux nvm_default_version v25.1.0
+        end
+        
+        set -g _node_v25_setup_done 1
     end
 end
-FISHCONFIG
+FUNC
 
-success "Fish configuration created"
-
-# Create reload and editfish functions
-cat > "$FISH_CONFIG_DIR/functions/reload.fish" << 'RELOADFUNC'
-# Reload fish configuration
-function reload
-    source ~/.config/fish/config.fish
-    echo "Fish configuration reloaded!"
-end
-RELOADFUNC
-
-cat > "$FISH_CONFIG_DIR/functions/editfish.fish" << 'EDITFISHFUNC'
-# Edit fish configuration
-function editfish
-    $EDITOR ~/.config/fish/config.fish
-end
-EDITFISHFUNC
-
-success "Fish functions created"
+success "All custom functions created"
 
 # ============================================================================
 # 5. Install Fisher plugins
@@ -422,17 +544,17 @@ success "Fisher plugins installation completed"
 # ============================================================================
 # 6. Install Node.js via nvm.fish
 # ============================================================================
-info "Installing latest Node.js via nvm.fish..."
+info "Installing Node.js v25.1.0 via nvm.fish..."
 
 # Wait a moment for nvm.fish to be available
 sleep 2
 
-# Install latest Node.js and set as default
-fish -c "nvm install latest" || warning "Failed to install Node.js"
-fish -c "nvm use latest" || warning "Failed to activate Node.js"
-fish -c "set -Ux nvm_default_version default" || warning "Failed to set default Node version"
+# Install Node.js v25.1.0 and set as default
+fish -c "nvm install v25.1.0" || warning "Failed to install Node.js"
+fish -c "nvm use v25.1.0" || warning "Failed to activate Node.js"
+fish -c "set -Ux nvm_default_version v25.1.0" || warning "Failed to set default Node version"
 
-success "Node.js installed via nvm.fish"
+success "Node.js v25.1.0 installed via nvm.fish"
 
 # ============================================================================
 # 7. Install pnpm via Corepack
@@ -491,13 +613,16 @@ info "Installed components:"
 echo "  ✓ Fish shell"
 echo "  ✓ Fisher plugin manager"
 echo "  ✓ nvm.fish (Node version manager)"
-echo "  ✓ Node.js (latest version)"
+echo "  ✓ Node.js v25.1.0"
 echo "  ✓ pnpm (via Corepack)"
 echo "  ✓ Fisher plugins:"
 echo "    - jorgebucaran/nvm.fish"
 echo "    - franciscolourenco/done"
 echo "    - edc/bass"
 echo "    - IlanCosman/tide@v6"
+echo "  ✓ All custom functions and aliases"
+echo ""
+success "Setup complete! Your Fish shell is fully configured."
 echo ""
 warning "Please restart your terminal or run 'exec fish' to start using Fish shell"
 echo ""
