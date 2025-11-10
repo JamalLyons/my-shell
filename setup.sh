@@ -122,7 +122,7 @@ if test -d ~/.nvm
     set -gx nvm_data ~/.nvm
 end
 
-# Note: Node.js v25.1.0 auto-install is handled in conf.d/nvm-auto-setup.fish
+# Note: nvm auto-initialization is handled in conf.d/nvm-auto-setup.fish
 # This ensures it runs after nvm.fish is fully loaded
 
 # Set default editor (prefer Cursor, then zed, then vim)
@@ -234,7 +234,30 @@ if status is-interactive
     if not set -q FISH_WELCOME_SHOWN
         set -gx FISH_WELCOME_SHOWN 1
         # Uncomment the line below if you want a welcome message
-        # echo "🐟 Fish shell ready! Type 'helpme' for custom commands."
+        echo "🐟 Fish shell ready! Type 'helpme' for custom commands."
+    end
+
+    # Auto-use Node.js v25.1.0 if installed (runs after nvm.fish loads)
+    function _use_node_v25_1_0 --on-event fish_prompt
+        # Only run once per session
+        if set -q _node_v25_activated
+            return
+        end
+
+        # Wait for nvm.fish to be fully loaded
+        if functions -q nvm
+            # Check if v25.1.0 is installed
+            if test -d $nvm_data/v25.1.0
+                # Use v25.1.0 if not already active
+                if not set -q nvm_current_version
+                    nvm use v25.1.0 --silent
+                else if test "$nvm_current_version" != "v25.1.0"
+                    nvm use v25.1.0 --silent
+                end
+            end
+
+            set -g _node_v25_activated 1
+        end
     end
 end
 FISHCONFIG
@@ -274,7 +297,7 @@ FUNC
 cat > "$FISH_CONFIG_DIR/functions/extract.fish" << 'FUNC'
 # Extract various archive formats
 function extract
-    if test -z $argv[1]
+    if test -z "$argv[1]"
         echo "Usage: extract <archive>"
         return 1
     end
@@ -477,40 +500,6 @@ function helpme
     echo "    gpl            - git pull"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-end
-FUNC
-
-# Create nvm-auto-setup.fish
-cat > "$FISH_CONFIG_DIR/conf.d/nvm-auto-setup.fish" << 'FUNC'
-# Auto-install and use Node.js v25.1.0
-# This runs after nvm.fish is loaded
-
-function _setup_node_v25_1_0 --on-event fish_prompt
-    # Only run once per session
-    if set -q _node_v25_setup_done
-        return
-    end
-    
-    # Wait for nvm.fish to be fully loaded
-    if functions -q nvm
-        # Check if v25.1.0 is installed
-        if not test -d $nvm_data/v25.1.0
-            echo "Installing Node.js v25.1.0..."
-            nvm install v25.1.0 --silent
-        end
-        
-        # Use v25.1.0 if not already active
-        if not set -q nvm_current_version
-            nvm use v25.1.0 --silent
-        end
-        
-        # Set as default for future sessions
-        if not set -q nvm_default_version
-            set -Ux nvm_default_version v25.1.0
-        end
-        
-        set -g _node_v25_setup_done 1
-    end
 end
 FUNC
 
