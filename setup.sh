@@ -116,6 +116,11 @@ if test -d ~/.local/bin
     fish_add_path ~/.local/bin
 end
 
+# Add cargo bin directory
+if test -d ~/.cargo/bin
+    fish_add_path ~/.cargo/bin
+end
+
 # Configure nvm.fish to use existing ~/.nvm directory
 # This must be set before conf.d/nvm.fish loads
 if test -d ~/.nvm
