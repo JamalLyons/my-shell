@@ -102,6 +102,20 @@ cat > "$FISH_CONFIG_DIR/config.fish" << 'FISHCONFIG'
 # Environment Variables & Path Setup
 # ----------------------------------------------------------------------------
 
+# Set TERM to enable icons and colors (required for Tide prompt)
+# Only set if TERM is not already set or is set to 'dumb'
+if not set -q TERM; or test "$TERM" = dumb
+    # Detect terminal type for macOS
+    if test (uname) = Darwin
+        # For macOS Terminal.app or iTerm2, use xterm-256color
+        # For tmux/screen, this will be overridden by those programs
+        set -gx TERM xterm-256color
+    else
+        # For Linux, default to xterm-256color
+        set -gx TERM xterm-256color
+    end
+end
+
 # Add common macOS paths if they exist
 if test -d /opt/homebrew/bin
     fish_add_path /opt/homebrew/bin
