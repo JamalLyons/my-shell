@@ -158,6 +158,9 @@ else
 end
 set -gx VISUAL $EDITOR
 
+# Google Cloud Project
+set -gx GOOGLE_CLOUD_PROJECT personal-479223
+
 # macOS specific settings
 if test (uname) = "Darwin"
     # Disable Apple's zsh warning
