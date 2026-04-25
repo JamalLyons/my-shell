@@ -141,14 +141,11 @@ if test -d ~/.nvm
     set -gx nvm_data ~/.nvm
 end
 
-# Note: nvm auto-initialization is handled in conf.d/nvm-auto-setup.fish
-# This ensures it runs after nvm.fish is fully loaded
-
-# Set default editor (prefer Cursor, then zed, then vim)
-if type -q cursor
-    set -gx EDITOR cursor
-else if type -q zed
+# Set default editor (prefer zed, then cursor, then vim)
+if type -q zed
     set -gx EDITOR zed
+else if type -q cursor
+    set -gx EDITOR cursor
 else if type -q vim
     set -gx EDITOR vim
 else if type -q nano
@@ -162,15 +159,18 @@ set -gx VISUAL $EDITOR
 set -gx GOOGLE_CLOUD_PROJECT personal-479223
 
 # macOS specific settings
-if test (uname) = "Darwin"
+if test (uname) = Darwin
     # Disable Apple's zsh warning
     set -gx BASH_SILENCE_DEPRECATION_WARNING 1
-    
+
     # Use Homebrew's curl if available
     if test -f /opt/homebrew/bin/curl
         set -gx PATH /opt/homebrew/bin $PATH
     end
 end
+
+# MySQL
+set -gx PATH /usr/local/mysql/bin $PATH
 
 # ----------------------------------------------------------------------------
 # Fish Shell Settings
@@ -220,7 +220,7 @@ alias cls "clear"
 
 # Docker (if installed)
 if command -v docker >/dev/null
-    alias d "docker"
+    alias d docker
     alias dc "docker compose"
     alias dps "docker ps"
     alias dpa "docker ps -a"
@@ -240,13 +240,6 @@ abbr -a -- gps git push
 abbr -a -- gpl git pull
 abbr -a -- gd git diff
 abbr -a -- gl git log --oneline --graph --decorate --all
-
-# ----------------------------------------------------------------------------
-# Custom Functions (loaded from functions/ directory)
-# ----------------------------------------------------------------------------
-
-# All custom functions are defined in separate files in ~/.config/fish/functions/
-# This keeps the config clean and makes functions easier to manage
 
 # ----------------------------------------------------------------------------
 # Interactive Session Setup
@@ -283,6 +276,26 @@ if status is-interactive
         end
     end
 end
+
+# pnpm
+set -gx PNPM_HOME /Users/$USER/Library/pnpm
+if not string match -q -- $PNPM_HOME $PATH
+    set -gx PATH "$PNPM_HOME" $PATH
+end
+# pnpm end
+
+# Added by Antigravity
+fish_add_path /Users/$USER/.antigravity/antigravity/bin
+
+# bun
+set --export BUN_INSTALL "$HOME/.bun"
+set --export PATH $BUN_INSTALL/bin $PATH
+
+# Added by Antigravity
+fish_add_path /Users/$USER/.antigravity/antigravity/bin
+
+# Added by Antigravity
+fish_add_path /Users/$USER/.antigravity/antigravity/bin
 FISHCONFIG
 
 success "Fish configuration created"
