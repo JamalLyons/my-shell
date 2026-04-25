@@ -216,6 +216,7 @@ alias beep "echo -e '\a'"
 alias ports "lsof -i -P -n | grep LISTEN"
 alias myip "curl -s https://ipinfo.io/ip"
 alias weather "curl -s 'wttr.in?format=3'"
+alias cls "clear"
 
 # Docker (if installed)
 if command -v docker >/dev/null
