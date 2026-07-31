@@ -1,661 +1,126 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 # ============================================================================
-# Fish Shell Setup Script
-# This script sets up Fish shell with nvm, pnpm, fisher, and plugins
+# my-shell — Brewfile-driven macOS coding environment bootstrap
+# ============================================================================
+# Usage:
+#   bash ./setup.sh
+#   bash ./setup.sh --dry-run
+#   bash ./setup.sh --skip-casks
+#   bash ./setup.sh --skip-shell
+#   bash ./setup.sh --skip-xcode
 # ============================================================================
 
-set -e  # Exit on error
+set -euo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/log.sh
+source "${REPO_ROOT}/lib/log.sh"
+# shellcheck source=lib/brew.sh
+source "${REPO_ROOT}/lib/brew.sh"
+# shellcheck source=lib/fish.sh
+source "${REPO_ROOT}/lib/fish.sh"
+# shellcheck source=lib/node.sh
+source "${REPO_ROOT}/lib/node.sh"
+# shellcheck source=lib/xcode.sh
+source "${REPO_ROOT}/lib/xcode.sh"
 
-# Helper functions
-info() {
-    echo -e "${BLUE}ℹ${NC} $1"
+DRY_RUN=0
+SKIP_CASKS=0
+SKIP_SHELL=0
+SKIP_XCODE=0
+
+usage() {
+  cat <<'EOF'
+Usage: bash ./setup.sh [options]
+
+Options:
+  --dry-run       Print what would happen without making changes
+  --skip-casks    Skip Homebrew cask installs (CLI formulas only)
+  --skip-shell    Do not change the login shell to Fish
+  --skip-xcode    Skip latest Xcode install via xcodes
+  -h, --help      Show this help
+EOF
 }
 
-success() {
-    echo -e "${GREEN}✓${NC} $1"
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run) DRY_RUN=1 ;;
+      --skip-casks) SKIP_CASKS=1 ;;
+      --skip-shell) SKIP_SHELL=1 ;;
+      --skip-xcode) SKIP_XCODE=1 ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *)
+        die "Unknown option: $1 (try --help)"
+        ;;
+    esac
+    shift
+  done
 }
 
-warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+require_macos() {
+  if [[ "$(uname)" != "Darwin" ]]; then
+    die "This script is designed for macOS."
+  fi
 }
 
-error() {
-    echo -e "${RED}✗${NC} $1"
+print_summary() {
+  echo ""
+  success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  success "  Setup complete"
+  success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  info "Installed / configured:"
+  echo "  • Homebrew + Brewfile packages"
+  echo "  • Fish shell + Fisher plugins (Tide, done, bass)"
+  echo "  • fnm + Node.js LTS + pnpm (Corepack)"
+  echo "  • Latest Xcode via xcodes (unless --skip-xcode)"
+  echo "  • Fish config templates synced to ~/.config/fish"
+  echo ""
+  info "Useful commands:"
+  echo "  helpme           Show custom Fish commands"
+  echo "  brewup           Update Homebrew formulas/casks + Fisher"
+  echo "  reload           Reload Fish config"
+  echo "  fnm list         List Node versions"
+  echo "  xcodes install --latest --select"
+  echo ""
+  if [[ "$DRY_RUN" == "1" ]]; then
+    warning "This was a dry run — no changes were applied."
+  else
+    warning "Restart your terminal or run 'exec fish' to load the new environment."
+    info "If you previously used nvm, ~/.nvm was left alone. You can remove it after verifying fnm works."
+  fi
+  echo ""
 }
 
-# Check if running on macOS
-if [[ "$(uname)" != "Darwin" ]]; then
-    error "This script is designed for macOS. Exiting."
-    exit 1
-fi
+main() {
+  parse_args "$@"
+  require_macos
 
-info "Starting Fish shell setup..."
+  info "Starting my-shell setup..."
+  [[ "$DRY_RUN" == "1" ]] && warning "Dry-run mode enabled"
 
-# ============================================================================
-# 1. Install Fish shell (if not already installed)
-# ============================================================================
-info "Checking for Fish shell installation..."
+  install_homebrew
+  ensure_brew_on_path || die "Homebrew is required"
 
-if ! command -v fish &> /dev/null; then
-    info "Fish shell not found. Installing via Homebrew..."
-    if ! command -v brew &> /dev/null; then
-        error "Homebrew not found. Please install Homebrew first:"
-        echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-        exit 1
-    fi
-    brew install fish
-    success "Fish shell installed"
-else
-    success "Fish shell already installed: $(fish --version)"
-fi
+  run_brew_bundle "${REPO_ROOT}/Brewfile"
+  ensure_rustup
 
-# ============================================================================
-# 2. Create Fish config directory
-# ============================================================================
-FISH_CONFIG_DIR="$HOME/.config/fish"
-info "Creating Fish config directory: $FISH_CONFIG_DIR"
-mkdir -p "$FISH_CONFIG_DIR"
-mkdir -p "$FISH_CONFIG_DIR/functions"
-mkdir -p "$FISH_CONFIG_DIR/conf.d"
-mkdir -p "$FISH_CONFIG_DIR/completions"
-success "Fish config directory created"
+  sync_fish_templates
+  install_fisher
+  install_fisher_plugins
 
-# ============================================================================
-# 3. Install Fisher plugin manager
-# ============================================================================
-info "Installing Fisher plugin manager..."
+  setup_fnm_node
+  setup_pnpm
 
-if [ -f "$FISH_CONFIG_DIR/functions/fisher.fish" ]; then
-    success "Fisher already installed"
-else
-    curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source
-    fisher install jorgebucaran/fisher
-    success "Fisher installed"
-fi
+  setup_xcode
 
-# ============================================================================
-# 4. Copy Fish configuration
-# ============================================================================
-info "Setting up Fish configuration..."
+  set_fish_as_default_shell
 
-# Check if config.fish already exists
-if [ -f "$FISH_CONFIG_DIR/config.fish" ]; then
-    warning "config.fish already exists. Creating backup..."
-    cp "$FISH_CONFIG_DIR/config.fish" "$FISH_CONFIG_DIR/config.fish.backup.$(date +%Y%m%d_%H%M%S)"
-fi
+  print_summary
+}
 
-# Create the config.fish file (functions are in separate files)
-cat > "$FISH_CONFIG_DIR/config.fish" << 'FISHCONFIG'
-# ============================================================================
-# Fish Shell Configuration for macOS
-# ============================================================================
-
-# ----------------------------------------------------------------------------
-# Environment Variables & Path Setup
-# ----------------------------------------------------------------------------
-
-# Set TERM to enable icons and colors (required for Tide prompt)
-# Only set if TERM is not already set or is set to 'dumb'
-if not set -q TERM; or test "$TERM" = dumb
-    # Detect terminal type for macOS
-    if test (uname) = Darwin
-        # For macOS Terminal.app or iTerm2, use xterm-256color
-        # For tmux/screen, this will be overridden by those programs
-        set -gx TERM xterm-256color
-    else
-        # For Linux, default to xterm-256color
-        set -gx TERM xterm-256color
-    end
-end
-
-# Add common macOS paths if they exist
-if test -d /opt/homebrew/bin
-    fish_add_path /opt/homebrew/bin
-end
-
-if test -d /opt/homebrew/sbin
-    fish_add_path /opt/homebrew/sbin
-end
-
-# Add local bin directory
-if test -d ~/.local/bin
-    fish_add_path ~/.local/bin
-end
-
-# Add cargo bin directory
-if test -d ~/.cargo/bin
-    fish_add_path ~/.cargo/bin
-end
-
-# Configure nvm.fish to use existing ~/.nvm directory
-# This must be set before conf.d/nvm.fish loads
-if test -d ~/.nvm
-    set -gx nvm_data ~/.nvm
-end
-
-# Set default editor (prefer zed, then cursor, then vim)
-if type -q zed
-    set -gx EDITOR zed
-else if type -q cursor
-    set -gx EDITOR cursor
-else if type -q vim
-    set -gx EDITOR vim
-else if type -q nano
-    set -gx EDITOR nano
-else
-    set -gx EDITOR vi
-end
-set -gx VISUAL $EDITOR
-
-# Google Cloud Project
-set -gx GOOGLE_CLOUD_PROJECT personal-479223
-
-# macOS specific settings
-if test (uname) = Darwin
-    # Disable Apple's zsh warning
-    set -gx BASH_SILENCE_DEPRECATION_WARNING 1
-
-    # Use Homebrew's curl if available
-    if test -f /opt/homebrew/bin/curl
-        set -gx PATH /opt/homebrew/bin $PATH
-    end
-end
-
-# MySQL
-set -gx PATH /usr/local/mysql/bin $PATH
-
-# ----------------------------------------------------------------------------
-# Fish Shell Settings
-# ----------------------------------------------------------------------------
-
-# Better history
-set -gx fish_history_size 10000
-
-# Disable greeting
-set -g fish_greeting ""
-
-# ----------------------------------------------------------------------------
-# Aliases
-# ----------------------------------------------------------------------------
-
-# General
-alias ll "ls -lah"
-alias la "ls -la"
-alias l "ls -l"
-alias .. "cd .."
-alias ... "cd ../.."
-alias .... "cd ../../.."
-
-# macOS specific
-alias showfiles "defaults write com.apple.finder AppleShowAllFiles YES; killall Finder /System/Library/CoreServices/Finder.app"
-alias hidefiles "defaults write com.apple.finder AppleShowAllFiles NO; killall Finder /System/Library/CoreServices/Finder.app"
-alias cleanup "find . -type f -name '*.DS_Store' -ls -delete"
-
-# Git shortcuts
-alias gs "git status"
-alias ga "git add"
-alias gc "git commit -m"
-alias gp "git push"
-alias gl "git log --oneline --graph --decorate --all"
-alias gd "git diff"
-alias gb "git branch"
-alias gco "git checkout"
-alias gst "git stash"
-alias gsp "git stash pop"
-
-# Development
-alias beep "echo -e '\a'"
-alias ports "lsof -i -P -n | grep LISTEN"
-alias myip "curl -s https://ipinfo.io/ip"
-alias weather "curl -s 'wttr.in?format=3'"
-alias cls "clear"
-
-# Docker (if installed)
-if command -v docker >/dev/null
-    alias d docker
-    alias dc "docker compose"
-    alias dps "docker ps"
-    alias dpa "docker ps -a"
-    alias di "docker images"
-    alias dex "docker exec -it"
-end
-
-# ----------------------------------------------------------------------------
-# Abbreviations (auto-expand)
-# ----------------------------------------------------------------------------
-
-abbr -a -- gst git status
-abbr -a -- gco git checkout
-abbr -a -- gaa git add --all
-abbr -a -- gcm git commit -m
-abbr -a -- gps git push
-abbr -a -- gpl git pull
-abbr -a -- gd git diff
-abbr -a -- gl git log --oneline --graph --decorate --all
-
-# ----------------------------------------------------------------------------
-# Interactive Session Setup
-# ----------------------------------------------------------------------------
-
-if status is-interactive
-    # Welcome message (only show once per session)
-    if not set -q FISH_WELCOME_SHOWN
-        set -gx FISH_WELCOME_SHOWN 1
-        # Uncomment the line below if you want a welcome message
-        echo "🐟 Fish shell ready! Type 'helpme' for custom commands."
-    end
-
-    # Auto-use Node.js v25.1.0 if installed (runs after nvm.fish loads)
-    function _use_node_v25_1_0 --on-event fish_prompt
-        # Only run once per session
-        if set -q _node_v25_activated
-            return
-        end
-
-        # Wait for nvm.fish to be fully loaded
-        if functions -q nvm
-            # Check if v25.1.0 is installed
-            if test -d $nvm_data/v25.1.0
-                # Use v25.1.0 if not already active
-                if not set -q nvm_current_version
-                    nvm use v25.1.0 --silent
-                else if test "$nvm_current_version" != "v25.1.0"
-                    nvm use v25.1.0 --silent
-                end
-            end
-
-            set -g _node_v25_activated 1
-        end
-    end
-end
-
-# pnpm
-set -gx PNPM_HOME /Users/$USER/Library/pnpm
-if not string match -q -- $PNPM_HOME $PATH
-    set -gx PATH "$PNPM_HOME" $PATH
-end
-# pnpm end
-
-# Added by Antigravity
-fish_add_path /Users/$USER/.antigravity/antigravity/bin
-
-# bun
-set --export BUN_INSTALL "$HOME/.bun"
-set --export PATH $BUN_INSTALL/bin $PATH
-
-# Added by Antigravity
-fish_add_path /Users/$USER/.antigravity/antigravity/bin
-
-# Added by Antigravity
-fish_add_path /Users/$USER/.antigravity/antigravity/bin
-FISHCONFIG
-
-success "Fish configuration created"
-
-# Create all custom functions
-info "Creating custom functions..."
-
-# Reload function
-cat > "$FISH_CONFIG_DIR/functions/reload.fish" << 'FUNC'
-# Reload fish configuration
-function reload
-    source ~/.config/fish/config.fish
-    echo "Fish configuration reloaded!"
-end
-FUNC
-
-# Editfish function
-cat > "$FISH_CONFIG_DIR/functions/editfish.fish" << 'FUNC'
-# Edit fish configuration
-function editfish
-    $EDITOR ~/.config/fish/config.fish
-end
-FUNC
-
-# mkcd function
-cat > "$FISH_CONFIG_DIR/functions/mkcd.fish" << 'FUNC'
-# Create directory and cd into it
-function mkcd
-    mkdir -p $argv[1]
-    cd $argv[1]
-end
-FUNC
-
-# extract function
-cat > "$FISH_CONFIG_DIR/functions/extract.fish" << 'FUNC'
-# Extract various archive formats
-function extract
-    if test -z "$argv[1]"
-        echo "Usage: extract <archive>"
-        return 1
-    end
-    
-    set file $argv[1]
-    if test ! -f $file
-        echo "Error: $file not found"
-        return 1
-    end
-    
-    switch $file
-        case "*.tar.gz" "*.tgz"
-            tar -xzf $file
-        case "*.tar.bz2" "*.tbz2"
-            tar -xjf $file
-        case "*.tar.xz"
-            tar -xJf $file
-        case "*.tar"
-            tar -xf $file
-        case "*.zip"
-            unzip $file
-        case "*.rar"
-            unrar x $file
-        case "*.7z"
-            7z x $file
-        case "*.gz"
-            gunzip $file
-        case "*.bz2"
-            bunzip2 $file
-        case "*"
-            echo "Unknown archive format: $file"
-            return 1
-    end
-end
-FUNC
-
-# ff function
-cat > "$FISH_CONFIG_DIR/functions/ff.fish" << 'FUNC'
-# Find files by name
-function ff
-    find . -name "*$argv[1]*" -type f
-end
-FUNC
-
-# fd function
-cat > "$FISH_CONFIG_DIR/functions/fd.fish" << 'FUNC'
-# Find directories by name
-function fd
-    find . -name "*$argv[1]*" -type d
-end
-FUNC
-
-# grep function
-cat > "$FISH_CONFIG_DIR/functions/grep.fish" << 'FUNC'
-# Quick search in files
-function grep
-    command grep --color=auto $argv
-end
-FUNC
-
-# duh function
-cat > "$FISH_CONFIG_DIR/functions/duh.fish" << 'FUNC'
-# Show disk usage of current directory
-function duh
-    du -h -d 1 | sort -hr
-end
-FUNC
-
-# serve function
-cat > "$FISH_CONFIG_DIR/functions/serve.fish" << 'FUNC'
-# Quick server (Python)
-function serve
-    if test -n "$argv[1]"
-        set port $argv[1]
-    else
-        set port 8000
-    end
-    if command -v python3 >/dev/null
-        python3 -m http.server $port
-    else if command -v python >/dev/null
-        python -m SimpleHTTPServer $port
-    else
-        echo "Python not found"
-        return 1
-    end
-end
-FUNC
-
-# note function
-cat > "$FISH_CONFIG_DIR/functions/note.fish" << 'FUNC'
-# Quick note taking
-function note
-    set note_file ~/.notes
-    if test (count $argv) -gt 0
-        echo (date "+%Y-%m-%d %H:%M:%S") "|" $argv >> $note_file
-        echo "Note added: $argv"
-    else
-        if test -f $note_file
-            cat $note_file
-        else
-            echo "No notes yet. Add one with: note 'your note here'"
-        end
-    end
-end
-FUNC
-
-# git-cred-clear function
-cat > "$FISH_CONFIG_DIR/functions/git-cred-clear.fish" << 'FUNC'
-# Git credential management helpers
-function git-cred-clear
-    # Clear GitHub credentials from keychain
-    security delete-internet-password -s github.com 2>/dev/null
-    echo "GitHub credentials cleared from keychain"
-end
-FUNC
-
-# git-cred-update function
-cat > "$FISH_CONFIG_DIR/functions/git-cred-update.fish" << 'FUNC'
-# Update GitHub credentials
-function git-cred-update
-    # Usage: git-cred-update <username> <personal-access-token>
-    if test (count $argv) -lt 2
-        echo "Usage: git-cred-update <username> <personal-access-token>"
-        echo ""
-        echo "To create a Personal Access Token:"
-        echo "  1. Go to: https://github.com/settings/tokens"
-        echo "  2. Generate new token (classic)"
-        echo "  3. Select scopes: repo, workflow, write:packages, delete:packages"
-        return 1
-    end
-    
-    set username $argv[1]
-    set token $argv[2]
-    
-    # Clear old credentials
-    git-cred-clear
-    
-    # Set up credential helper
-    git config --global credential.helper osxkeychain
-    
-    # Store new credentials via git credential helper
-    echo "protocol=https
-host=github.com
-username=$username
-password=$token" | git credential approve
-    
-    echo "GitHub credentials updated!"
-    echo "Username: $username"
-end
-FUNC
-
-# git-cred-view function
-cat > "$FISH_CONFIG_DIR/functions/git-cred-view.fish" << 'FUNC'
-# View current GitHub credentials (username only, password hidden)
-function git-cred-view
-    security find-internet-password -s github.com 2>/dev/null | grep "acct" | string replace -r '.*"acct"<blob>="([^"]+)".*' '$1'
-end
-FUNC
-
-# helpme function
-cat > "$FISH_CONFIG_DIR/functions/helpme.fish" << 'FUNC'
-# Show help for custom commands
-function helpme
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  Fish Shell Custom Commands & Utilities"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "  Configuration:"
-    echo "    reload         - Reload fish configuration"
-    echo "    editfish       - Open fish config in editor"
-    echo ""
-    echo "  File Operations:"
-    echo "    mkcd <dir>     - Create directory and cd into it"
-    echo "    extract <file> - Extract various archive formats"
-    echo "    ff <name>      - Find files by name"
-    echo "    fd <name>      - Find directories by name"
-    echo "    duh            - Show disk usage of current directory"
-    echo ""
-    echo "  Development:"
-    echo "    serve [port]   - Start HTTP server (default: 8000)"
-    echo "    ports          - Show listening ports"
-    echo "    myip           - Show your public IP"
-    echo "    weather        - Show weather"
-    echo ""
-    echo "  Utilities:"
-    echo "    note [text]    - Add/view notes"
-    echo "    cleanup        - Remove .DS_Store files"
-    echo ""
-    echo "  Git Credentials:"
-    echo "    git-cred-clear           - Clear GitHub credentials from keychain"
-    echo "    git-cred-update <user> <token> - Update GitHub credentials"
-    echo "    git-cred-view            - View current GitHub username"
-    echo ""
-    echo "  Git Abbreviations (type and press space to expand):"
-    echo "    gst            - git status"
-    echo "    gco            - git checkout"
-    echo "    gaa            - git add --all"
-    echo "    gcm            - git commit -m"
-    echo "    gps            - git push"
-    echo "    gpl            - git pull"
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-end
-FUNC
-
-success "All custom functions created"
-
-# ============================================================================
-# 5. Install Fisher plugins
-# ============================================================================
-info "Installing Fisher plugins..."
-
-# Source fisher to make it available
-if [ -f "$FISH_CONFIG_DIR/functions/fisher.fish" ]; then
-    source "$FISH_CONFIG_DIR/functions/fisher.fish"
-fi
-
-# Install plugins using fish shell
-info "Installing nvm.fish..."
-fish -c "fisher install jorgebucaran/nvm.fish" || warning "Failed to install nvm.fish"
-
-info "Installing done..."
-fish -c "fisher install franciscolourenco/done" || warning "Failed to install done"
-
-info "Installing bass..."
-fish -c "fisher install edc/bass" || warning "Failed to install bass"
-
-info "Installing tide..."
-fish -c "fisher install IlanCosman/tide@v6" || warning "Failed to install tide"
-
-success "Fisher plugins installation completed"
-
-# ============================================================================
-# 6. Install Node.js via nvm.fish
-# ============================================================================
-info "Installing Node.js v25.1.0 via nvm.fish..."
-
-# Wait a moment for nvm.fish to be available
-sleep 2
-
-# Install Node.js v25.1.0 and set as default
-fish -c "nvm install v25.1.0" || warning "Failed to install Node.js"
-fish -c "nvm use v25.1.0" || warning "Failed to activate Node.js"
-fish -c "set -Ux nvm_default_version v25.1.0" || warning "Failed to set default Node version"
-
-success "Node.js v25.1.0 installed via nvm.fish"
-
-# ============================================================================
-# 7. Install pnpm via Corepack
-# ============================================================================
-info "Installing pnpm via Corepack..."
-
-# Enable corepack and install pnpm
-fish -c "corepack enable" || warning "Failed to enable Corepack"
-fish -c "corepack enable pnpm" || warning "Failed to enable pnpm"
-
-success "pnpm installed via Corepack"
-
-# ============================================================================
-# 8. Set Fish as default shell
-# ============================================================================
-info "Setting Fish as default shell..."
-
-FISH_PATH=$(which fish)
-
-if [ -z "$FISH_PATH" ]; then
-    error "Could not find Fish shell path"
-    exit 1
-fi
-
-# Check if Fish is already the default shell
-CURRENT_SHELL=$(dscl . -read /Users/$(whoami) UserShell | awk '{print $2}')
-
-if [ "$CURRENT_SHELL" = "$FISH_PATH" ]; then
-    success "Fish is already the default shell"
-else
-    info "Current shell: $CURRENT_SHELL"
-    info "Setting Fish as default: $FISH_PATH"
-    
-    # Check if Fish is in /etc/shells
-    if ! grep -q "$FISH_PATH" /etc/shells; then
-        info "Adding Fish to /etc/shells (requires sudo)..."
-        echo "$FISH_PATH" | sudo tee -a /etc/shells
-    fi
-    
-    # Change default shell
-    info "Changing default shell (requires password)..."
-    chsh -s "$FISH_PATH"
-    
-    success "Fish set as default shell. Please restart your terminal for changes to take effect."
-fi
-
-# ============================================================================
-# Summary
-# ============================================================================
-echo ""
-success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-success "  Fish Shell Setup Complete!"
-success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-info "Installed components:"
-echo "  ✓ Fish shell"
-echo "  ✓ Fisher plugin manager"
-echo "  ✓ nvm.fish (Node version manager)"
-echo "  ✓ Node.js v25.1.0"
-echo "  ✓ pnpm (via Corepack)"
-echo "  ✓ Fisher plugins:"
-echo "    - jorgebucaran/nvm.fish"
-echo "    - franciscolourenco/done"
-echo "    - edc/bass"
-echo "    - IlanCosman/tide@v6"
-echo "  ✓ All custom functions and aliases"
-echo ""
-success "Setup complete! Your Fish shell is fully configured."
-echo ""
-warning "Please restart your terminal or run 'exec fish' to start using Fish shell"
-echo ""
-info "Useful commands:"
-echo "  - helpme          : Show custom Fish commands"
-echo "  - reload          : Reload Fish configuration"
-echo "  - editfish        : Edit Fish configuration"
-echo "  - nvm list        : List installed Node versions"
-echo "  - nvm install <v> : Install a Node version"
-echo ""
-
+main "$@"
